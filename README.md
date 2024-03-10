@@ -1,162 +1,181 @@
-# Homework 2
+# Homework 6 (Физический уровеннь PostgreSQL)
 
 
-В первой сессии создаем таблицу и наполняем ее данными:
-
+Поднимаем ВМ и ставим на нее PostgreSQL, используя информаицю из уроков 3 и 6.
+Проверим:
 ```
-  create table persons(id serial, first_name text, second_name text); insert into persons(first_name, second_name) values('ivan', 'ivanov'); insert into persons(first_name, second_name) values('petr', 'petrov'); commit;
-```
-
-
-Результат:
-
-```
-  CREATE TABLE
-INSERT 0 1
-INSERT 0 1
-WARNING:  there is no transaction in progress
-COMMIT
-```
-
-
-
-Смотрим текущий уровень изоляции:
-
-```
-  show transaction isolation level
-```
-
-
-Результат:
-
-<img width="258" alt="Снимок экрана 2024-02-15 в 21 30 08" src="https://github.com/NerdyScholar/hw2/assets/160164728/190b024f-93df-4007-9335-e1021062ddcb">
-
-
-
-Вставим в первой сессии новую строку:
-
-```
-  BEGIN
-otus_db=*# insert into persons(first_name, second_name) values('sergey', 'sergeev');
-INSERT 0 1
-```
-
-
-
-Посмотрим на таблицу через вторую сессию:
-```
-  BEGIN
-otus_db=*# select * from persons;
- id | first_name | second_name 
-----+------------+-------------
-  1 | ivan       | ivanov
-  2 | petr       | petrov
-(2 rows)
-```
-
-
-
-Мы не видим новую запись, так как при уровне изоляции *read_committed* нам нужно сначала закомитить изменения в первой сессии, чтобы увидеть их во второй
-
-
-
-Заселектим таблицу после коммита в первой сессии:
-
-```
-  otus_db=*# select * from persons;
-  id | first_name | second_name 
-----+------------+-------------
-  1 | ivan       | ivanov
-  2 | petr       | petrov
-  5 | sergey     | sergeev
-(3 rows)
-```
-
-
-
-Мы видим новую строчку из-за того, что мы закоммитили наш инсерт
-
-
-
-Повторяем наши действия, но теперь с уровнем изоляции *repeatable_read*
-
-```
-  otus_db=*# insert into persons(first_name, second_name) values('sveta', 'svetova');
-INSERT 0 1
-```
-
-
-
-Результат селекта в другой сессии:
+ yc-user@otus-vm:~$ sudo -u postgres pg_lsclusters
+Ver Cluster Port Status Owner    Data directory              Log file
+14  main    5432 online postgres /var/lib/postgresql/14/main /var/log/postgresql/postgresql-14-main.log
 
 ```
 
-  otus_db=# begin;
-BEGIN
-otus_db=*# set transaction isolation level repeatable read;
-SET
-otus_db=*# select * from persons;
- id | first_name | second_name 
-----+------------+-------------
-  1 | ivan       | ivanov
-  2 | petr       | petrov
-  5 | sergey     | sergeev
-  6 | sergey     | sergeeivich
-(4 rows)
+Зайдем  из под пользователя postgres в psql и сделаем произвольную таблицу с произвольным содержимым
+
+```
+  postgres=# create table test(c1 text);
+CREATE TABLE
+postgres=# INSERT INTO test (c1)
+postgres-# VALUES
+postgres-#   (md5(random()::text)),
+postgres-#   (md5(random()::text)),
+postgres-#   (md5(random()::text)),
+postgres-#   (md5(random()::text)),
+postgres-#   (md5(random()::text)),
+postgres-#   (md5(random()::text)),
+postgres-#   (md5(random()::text)),
+postgres-#   (md5(random()::text)),
+postgres-#   (md5(random()::text)),
+postgres-#   (md5(random()::text));
+INSERT 0 10
+postgres=# 
+postgres=# select * from test
+postgres-# ;
+                c1                
+----------------------------------
+ 7ae00286ca78c7c7e4a3a0d32b8b707a
+ 08136bf3d0c02c1f5c255225367cdf56
+ ab4e4043ae0553d85c48614a00a9b18f
+ e325e2170c5ff3a98638ea2b8b503ba9
+ da287f1bc39515decf96f3e9e8e03ccb
+ d6e8b047cad1e23de561c5e2d8a9c305
+ c862bb87a6acd25c20220832b8e048d3
+ 0a486a56700360319ada606f94319600
+ fbd39845343a0cd505b1f15d027eb065
+ 07e8ab60af9c285980c712cabf492af3
+(10 rows)
+
 ```
 
 
-Мы не видим строчку, добавленную в первой сессии, так как Уровень изоляции "Repeatable Read"  использует блокировки чтения для предотвращения чтения данных, которые были изменены другими транзакциями, но ещё не были зафиксированы. Однако незакомиченные изменения из других транзакций  не видны именно потому, что предоставляется консистентное (постоянное) чтение.
-
-
-
-Закоммитим в первой сессии и повторим селект во второй:
+Остановим PostgreSQL:
 
 ```
-  otus_db=*# select * from persons;
- id | first_name | second_name 
-----+------------+-------------
-  1 | ivan       | ivanov
-  2 | petr       | petrov
-  5 | sergey     | sergeev
-  6 | sergey     | sergeeivich
-(4 rows)
-```
-
-
-Новые данные все еще не видны, так как при текущем уровне изоляции нам нужно закончить транзакцию, чтобы увидеть изменения из других сессий
-
-
-
-Закоммитим во второй сессии и повторим селект в ней:
+  yc-user@otus-vm:~$ sudo -u postgres pg_ctlcluster 14 main stop
+Warning: stopping the cluster using pg_ctlcluster will mark the systemd unit as failed. Consider using systemctl:
+  sudo systemctl stop postgresql@14-main
+yc-user@otus-vm:~$ pg_lsclusters
+Ver Cluster Port Status Owner    Data directory              Log file
+14  main    5432 down   postgres /var/lib/postgresql/14/main /var/log/postgresql/postgresql-14-main.log
 
 ```
-  otus_db=*# select * from persons;
- id | first_name | second_name 
-----+------------+-------------
-  1 | ivan       | ivanov
-  2 | petr       | petrov
-  5 | sergey     | sergeev
-  6 | sergey     | sergeeivich
-(4 rows)
+
+Создажим новый диск, разметим и примонтируем его к /mnt/data/:
 
 
-otus_db=*# commit;
-COMMIT
-otus_db=# begin;
-BEGIN
-otus_db=*# select * from persons;
- id | first_name | second_name 
-----+------------+-------------
-  1 | ivan       | ivanov
-  2 | petr       | petrov
-  5 | sergey     | sergeev
-  6 | sergey     | sergeeivich
-  7 | sveta      | svetova
-(5 rows)
+
+```
+  syc compute disk create \
+    --name new-disk \
+    --type network-hdd \
+    --size 10 \
+    --description "second disk for otus-vm"
 ```
 
 
-Мы видим новую строчку, так как завершили предыдущую транзакцию, вторая сессия не могла получить  изменения первой сессии до того, как не была завершена предыдущаю транзакция repeatable_read
+```
+ yc-user@otus-vm:~$ sudo lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT,LABEL
+NAME   FSTYPE SIZE MOUNTPOINT LABEL
+vda            15G            
+├─vda1          1M            
+└─vda2 ext4    15G /          
+vdb            10G            
+```
+
+
+```
+  yc-user@otus-vm:~$ sudo mount /dev/vdb1 /mnt/data
+```
+
+
+
+```
+ yc-user@otus-vm:~$ sudo lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT,LABEL
+NAME   FSTYPE SIZE MOUNTPOINT LABEL
+vda            15G            
+├─vda1          1M            
+└─vda2 ext4    15G /          
+vdb    ext4    10G /mnt/data 
+```
+
+После рестарта ВМ монтирование не сохранилось, поэтому необходимо внести корректировки через fstab:
+
+
+```
+ yc-user@otus-vm:~$ sudo nano /etc/fstab
+```
+Внесем такую строчку:
+
+```
+UUID=be2c7c06-cc2b-4d4b-96c6-e3700932b129 /mnt/data ext4 defaults 0 2
+
+```
+Пояснения:
+```
+UUID=<UUID_диска> <точка_монтирования> <тип_файловой_системы> <опции_монтирования> <флаги_дампа> <флаги_проверки>
+
+```
+Перенесите содержимое /var/lib/postgres/15 в /mnt/data:
+
+
+
+```
+ yc-user@otus-vm:~$ sudo mv /var/lib/postgresql/14/* /mnt/data/
+```
+
+Сменим владельца /mnt/data с root на postgres:
+
+
+```
+  yc-user@otus-vm:~$ sudo chown -R postgres:postgres /mnt/data
+```
+Попытаемся поднять Postgres:
+```
+  yc-user@otus-vm:~$  sudo -u postgres pg_ctlcluster 14  main start
+Error: /var/lib/postgresql/14/main is not accessible or does not exist
+```
+Не получилось, потому что Postgres обращается к директории, где уже нет файлов для запуска, так как мы их перенесли.
+
+Зайдем в конфигурационный файл:
+```
+sudo nano /etc/postgresql/14/main/postgresql.conf
+```
+Сменим data_directory c /var/lib/postgresql/14/main на /mnt/data/main:
+
+```
+data_directory = '/mnt/data/main'
+
+```
+Попробуем снова запуститься:
+
+```
+yc-user@otus-vm:~$ sudo systemctl restart postgresql@14-main
+yc-user@otus-vm:~$ pg_lsclusters
+Ver Cluster Port Status Owner    Data directory Log file
+14  main    5432 online postgres /mnt/data/main /var/log/postgresql/postgresql-14-main.log
+
+
+```
+Все успешно, проверим данные в таблице:
+
+
+```
+postgres=# select * from test;
+                c1                
+----------------------------------
+ 7ae00286ca78c7c7e4a3a0d32b8b707a
+ 08136bf3d0c02c1f5c255225367cdf56
+ ab4e4043ae0553d85c48614a00a9b18f
+ e325e2170c5ff3a98638ea2b8b503ba9
+ da287f1bc39515decf96f3e9e8e03ccb
+ d6e8b047cad1e23de561c5e2d8a9c305
+ c862bb87a6acd25c20220832b8e048d3
+ 0a486a56700360319ada606f94319600
+ fbd39845343a0cd505b1f15d027eb065
+ 07e8ab60af9c285980c712cabf492af3
+(10 rows)
+```
+
+Все получилось, данные перенеслись успешно.
 
 
