@@ -60,7 +60,7 @@ Ver Cluster Port Status Owner    Data directory              Log file
 
 ```
 
-Создажим новый диск, разметим и примонтируем его к /mnt/data/:
+Создадим новый диск, разметим и примонтируем его к /mnt/data/:
 
 
 
@@ -115,7 +115,7 @@ UUID=be2c7c06-cc2b-4d4b-96c6-e3700932b129 /mnt/data ext4 defaults 0 2
 UUID=<UUID_диска> <точка_монтирования> <тип_файловой_системы> <опции_монтирования> <флаги_дампа> <флаги_проверки>
 
 ```
-Перенесите содержимое /var/lib/postgres/15 в /mnt/data:
+Перенесем содержимое /var/lib/postgres/15 в /mnt/data:
 
 
 
