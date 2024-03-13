@@ -276,3 +276,29 @@ postgres=# SELECT pg_size_pretty(pg_relation_size('my_table'));
 
 
 Таблица выросла в более чем 2 раза, хотя мертвых строк нет. Автовакуум не высвобождает место на диске после очистки.
+
+
+
+# Задание со звездочкой:
+
+```
+DO $$
+DECLARE
+    i INT := 1;
+BEGIN
+    WHILE i <= 10 LOOP
+        -- Выводим номер шага цикла
+        RAISE NOTICE 'Шаг цикла: %', i;
+
+        -- Обновляем столбец text_column, добавляя '++' в конец строки
+        UPDATE my_table
+        SET text_column = text_column || '++';
+
+        -- Добавляем задержку для имитации обновления нескольких раз
+        PERFORM pg_sleep(1);
+
+        i := i + 1;
+    END LOOP;
+END $$;
+
+```
