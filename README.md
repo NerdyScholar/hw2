@@ -1,181 +1,286 @@
-# Homework 6 (Физический уровень PostgreSQL)
+# Homework 9 (Журналы)
 
 
-Поднимаем ВМ и ставим на нее PostgreSQL, используя информаицю из уроков 3 и 6.
-Проверим:
+
+Настроим выполнение контрольной точки раз в 30 секунд. Для этого зайдем в файл postgresql.conf:
 ```
- yc-user@otus-vm:~$ sudo -u postgres pg_lsclusters
+sudo nano /etc/postgresql/15/main/postgresql.conf
+
+```
+
+Изменим данный параметр в конфигурации
+
+```
+  checkpoint_timeout = 30s                # range 30s-1d
+```
+Теперь контрольные точки будут создаваться каждые 30 секунд.
+
+
+
+Запустим pgbench с такими настройками на 10 минут:
+
+```
+  yc-user@otus-vm:~$ pgbench -c 10  -T 60 -U postgres -h localhost -d testdb
+
+```
+Результат:
+
+
+```
+  transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 1
+query mode: simple
+number of clients: 10
+number of threads: 1
+maximum number of tries: 1
+duration: 600 s
+number of transactions actually processed: 230225
+number of failed transactions: 0 (0.000%)
+latency average = 26.059 ms
+initial connection time = 96.686 ms
+tps = 383.740628 (without initial connection time)
+```
+Посмотрим, какой объем журнальных файлов был сгенерирован за это время. Оценим, какой объем приходится в среднем на одну контрольную точку.
+
+Вес лога до pgbench:
+
+```
+ yc-user@otus-vm:~$ cd /var/log/postgresql
+yc-user@otus-vm:/var/log/postgresql$ du -h *.log
+4K	postgresql-15-main.log 
+```
+Вес лога после pgbench:
+
+``` yc-user@otus-vm:~$ cd /var/log/postgresql
+yc-user@otus-vm:/var/log/postgresql$ du -h *.log
+8K	postgresql-15-main.log 
+```
+Добавилось 4кБ журнала, теперь посмотрим, что по контрольным точкам:
+
+Количество контрольных точек до pgbench:
+
+
+```
+postgres=# \c testdb
+You are now connected to database "testdb" as user "postgres".
+testdb=# SELECT checkpoints_timed AS timed_checkpoints,
+       checkpoints_req AS requested_checkpoints,
+       checkpoint_write_time,
+       checkpoint_sync_time
+FROM pg_stat_bgwriter;
+ timed_checkpoints | requested_checkpoints | checkpoint_write_time | checkpoint_sync_time 
+-------------------+-----------------------+-----------------------+----------------------
+                 6 |                     0 |                748583 |                   49
+```
+
+Количество контрольных точек после  pgbench:
+
+
+```
+ tps = 383.740628 (without initial connection time)
+
+yc-user@otus-vm:~$ sudo -u postgres psql
+psql (15.6 (Ubuntu 15.6-1.pgdg20.04+1))
+Type "help" for help.
+
+postgres=# \c testdb
+You are now connected to database "testdb" as user "postgres".
+testdb=# SELECT checkpoints_timed AS timed_checkpoints,
+       checkpoints_req AS requested_checkpoints,
+       checkpoint_write_time,
+       checkpoint_sync_time
+FROM pg_stat_bgwriter;
+ timed_checkpoints | requested_checkpoints | checkpoint_write_time | checkpoint_sync_time 
+-------------------+-----------------------+-----------------------+----------------------
+                28 |                     1 |               1404961 |                  385
+```
+Мы видим, что ене все контрольные точки создались по расписанию. Это связано с блокировками, которые могли быть во время попытки сделать новую контрольную точку.
+
+Таким образом, примерно 0.2 кБ приходится на одну контрольную точку
+
+
+Теперь давайте сравним tps в синхронном/асинхронном режиме утилитой pgbench:
+
+Сначала запустим на 60 сек синхронный режим (то есть, режим по умолчанию):
+
+```
+yc-user@otus-vm:~$ pgbench -c 10 -T 60 -U postgres -h localhost  testdb
+Password: 
+pgbench (15.6 (Ubuntu 15.6-1.pgdg20.04+1))
+starting vacuum...end.
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 1
+query mode: simple
+number of clients: 10
+number of threads: 1
+maximum number of tries: 1
+duration: 60 s
+number of transactions actually processed: 28352
+number of failed transactions: 0 (0.000%)
+latency average = 21.150 ms
+initial connection time = 106.168 ms
+tps = 472.823852 (without initial connection time)
+
+```
+
+Теперь зайдем в конфиг PostgreSQL и изменим параметр:
+
+```
+synchronous_commit = off 
+
+```
+Перезапустим кластер и проведем pgbench с теми же параметрами
+
+Результат:
+
+```
+yc-user@otus-vm:~$ pgbench -c 10 -T 60 -U postgres -h localhost  testdb
+Password: 
+pgbench (15.6 (Ubuntu 15.6-1.pgdg20.04+1))
+starting vacuum...end.
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 1
+query mode: simple
+number of clients: 10
+number of threads: 1
+maximum number of tries: 1
+duration: 60 s
+number of transactions actually processed: 98257
+number of failed transactions: 0 (0.000%)
+latency average = 6.098 ms
+initial connection time = 99.832 ms
+tps = 1639.788703 (without initial connection time)
+
+
+```
+
+Как мы видим, производительность выросла более чем в 3 раза. Это объясняется тем, что при асинхронной записи сброс журнальных записей выполняет процесс wal writer, чередуя циклы работы с ожиданием (которое устанавливается параметром wal_writer_delay = 200ms по умолчанию). Этот алгоритм нацелен на то, чтобы по возможности не синхронизировать одну и ту же страницу несколько раз, что важно при большом потоке изменений.
+
+Асинхронная запись эффективнее синхронной — фиксация изменений не ждет записи.
+
+
+Теперь создадим новый кластер с включенной контрольной суммой страниц через скрипт:
+
+
+```
+  #!/bin/bash
+
+# Переменные с настройками
+PG_VERSION=15           # Версия PostgreSQL
+PG_CLUSTER_NAME=mydb    # Имя кластера
+PG_DATA_DIR=/var/lib/postgresql/${PG_VERSION}/${PG_CLUSTER_NAME} # Директория данных кластера
+
+# Установка PostgreSQL
+sudo apt-get update
+sudo apt-get install -y postgresql-${PG_VERSION}
+
+# Создание кластера с включенными контрольными суммами
+sudo pg_createcluster --data=${PG_DATA_DIR} ${PG_VERSION} ${PG_CLUSTER_NAME} -- --data-checksums
+
+# Перезапуск сервера PostgreSQL
+sudo systemctl restart postgresql@${PG_VERSION}-${PG_CLUSTER_NAME}
+
+# Отображение статуса контрольных сумм
+sudo -u postgres psql -c "SHOW data_checksums;"
+
+```
+
+Проверим, что у нас оба кластера живые:
+
+```
+yc-user@otus-vm:~$ pg_lsclusters
 Ver Cluster Port Status Owner    Data directory              Log file
-14  main    5432 online postgres /var/lib/postgresql/14/main /var/log/postgresql/postgresql-14-main.log
+15  main    5432 online postgres /var/lib/postgresql/15/main /var/log/postgresql/postgresql-15-main.log
+15  mydb    5433 online postgres /var/lib/postgresql/15/mydb /var/log/postgresql/postgresql-15-mydb.log
 
 ```
-
-Зайдем  из под пользователя postgres в psql и сделаем произвольную таблицу с произвольным содержимым
+Подключимся к новому кластеру и посмотрим, включены ли контрольные суммы:
 
 ```
-  postgres=# create table test(c1 text);
+yc-user@otus-vm:~$ sudo -u postgres psql -p 5433
+psql (15.6 (Ubuntu 15.6-1.pgdg20.04+1))
+Type "help" for help.
+
+postgres=# show data_checksums;
+ data_checksums 
+----------------
+ on
+(1 row)
+
+
+```
+Создадим таблицу для тестов, посмотрим, что в ней лежит:
+
+```
+postgres=# CREATE TABLE my_table (
+postgres(#     id SERIAL PRIMARY KEY,
+postgres(#     data TEXT
+postgres(# );
 CREATE TABLE
-postgres=# INSERT INTO test (c1)
-postgres-# VALUES
-postgres-#   (md5(random()::text)),
-postgres-#   (md5(random()::text)),
-postgres-#   (md5(random()::text)),
-postgres-#   (md5(random()::text)),
-postgres-#   (md5(random()::text)),
-postgres-#   (md5(random()::text)),
-postgres-#   (md5(random()::text)),
-postgres-#   (md5(random()::text)),
-postgres-#   (md5(random()::text)),
-postgres-#   (md5(random()::text));
-INSERT 0 10
-postgres=# 
-postgres=# select * from test
-postgres-# ;
-                c1                
-----------------------------------
- 7ae00286ca78c7c7e4a3a0d32b8b707a
- 08136bf3d0c02c1f5c255225367cdf56
- ab4e4043ae0553d85c48614a00a9b18f
- e325e2170c5ff3a98638ea2b8b503ba9
- da287f1bc39515decf96f3e9e8e03ccb
- d6e8b047cad1e23de561c5e2d8a9c305
- c862bb87a6acd25c20220832b8e048d3
- 0a486a56700360319ada606f94319600
- fbd39845343a0cd505b1f15d027eb065
- 07e8ab60af9c285980c712cabf492af3
-(10 rows)
-
-```
-
-
-Остановим PostgreSQL:
-
-```
-  yc-user@otus-vm:~$ sudo -u postgres pg_ctlcluster 14 main stop
-Warning: stopping the cluster using pg_ctlcluster will mark the systemd unit as failed. Consider using systemctl:
-  sudo systemctl stop postgresql@14-main
-yc-user@otus-vm:~$ pg_lsclusters
-Ver Cluster Port Status Owner    Data directory              Log file
-14  main    5432 down   postgres /var/lib/postgresql/14/main /var/log/postgresql/postgresql-14-main.log
-
-```
-
-Создадим новый диск, разметим и примонтируем его к /mnt/data/:
-
+postgres=# INSERT INTO my_table (data) 
+postgres-# SELECT md5(random()::text) || chr(trunc(65 + random() * 26)::int)
+postgres-# FROM generate_series(1, 5);
+INSERT 0 5
+postgres=# SELECT * FROM my_table;
+ id |               data                
+----+-----------------------------------
+  1 | 12970382bbd405114c91dad9c01ef6deG
+  2 | f2e43a2086f7a7b01102a25d519254d7N
+  3 | cb78b8761c0738e166a4065b2d5e93deV
+  4 | 153e8515d840f451ef80991005d5cc41Z
+  5 | 398dda7f50898e274771cb518bb12644P
+(5 rows)
 
 
 ```
-  syc compute disk create \
-    --name new-disk \
-    --type network-hdd \
-    --size 10 \
-    --description "second disk for otus-vm"
+Посмотрим, где лежит эта таблица:
+
 ```
+postgres=# SELECT pg_relation_filepath('my_table');
+ pg_relation_filepath 
+----------------------
+ base/5/16389
+(1 row)
 
 
 ```
- yc-user@otus-vm:~$ sudo lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT,LABEL
-NAME   FSTYPE SIZE MOUNTPOINT LABEL
-vda            15G            
-├─vda1          1M            
-└─vda2 ext4    15G /          
-vdb            10G            
-```
+Удалим оттуда пару байт:
 
 
 ```
-  yc-user@otus-vm:~$ sudo mount /dev/vdb1 /mnt/data
+yc-user@otus-vm:~$ sudo dd if=/dev/zero of=/var/lib/postgresql/15/main/base/5/16389 oflag=dsync conv=notrunc bs=1 count=8
+10+0 records in
+10+0 records out
+10 bytes copied, 0.0208113 s, 0.4 kB/s
+
 ```
+
+Перезапустим кластер, попробуем заселектить нашу таблицу:
+
+```
+postgres=# SELECT * FROM my_table;
+WARNING:  page verification failed, calculated checksum 134265 but expected 149530
+ERROR:  invalid page in block 0 of relation  base/5/16389
+
+```
+
+Получаем наблюдаемую ошибку. Ппоробуем ее обойти:
 
 
 
 ```
- yc-user@otus-vm:~$ sudo lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT,LABEL
-NAME   FSTYPE SIZE MOUNTPOINT LABEL
-vda            15G            
-├─vda1          1M            
-└─vda2 ext4    15G /          
-vdb    ext4    10G /mnt/data 
-```
-
-После рестарта ВМ монтирование не сохранилось, поэтому необходимо внести корректировки через fstab:
-
-
-```
- yc-user@otus-vm:~$ sudo nano /etc/fstab
-```
-Внесем такую строчку:
+postgres=# SET ignore_checksum_failure = on;
+SET
+postgres=# SELECT * FROM wallevel;
+WARNING:  page verification failed, calculated checksum 134265 but expected 149530
+ id |               data                
+----+-----------------------------------
+  1 | 12970382bbd405114c91dad9c01ef6deG
+  2 | f2e43a2086f7a7b01102a25d519254d7N
+  3 | cb78b8761c0738e166a4065b2d5e93deV
+  4 | 153e8515d840f451ef80991005d5cc41Z
+  5 | 398dda7f50898e274771cb518bb12644P
 
 ```
-UUID=be2c7c06-cc2b-4d4b-96c6-e3700932b129 /mnt/data ext4 defaults 0 2
-
-```
-Пояснения:
-```
-UUID=<UUID_диска> <точка_монтирования> <тип_файловой_системы> <опции_монтирования> <флаги_дампа> <флаги_проверки>
-
-```
-Перенесем содержимое /var/lib/postgres/15 в /mnt/data:
-
-
-
-```
- yc-user@otus-vm:~$ sudo mv /var/lib/postgresql/14/* /mnt/data/
-```
-
-Сменим владельца /mnt/data с root на postgres:
-
-
-```
-  yc-user@otus-vm:~$ sudo chown -R postgres:postgres /mnt/data
-```
-Попытаемся поднять Postgres:
-```
-  yc-user@otus-vm:~$  sudo -u postgres pg_ctlcluster 14  main start
-Error: /var/lib/postgresql/14/main is not accessible or does not exist
-```
-Не получилось, потому что Postgres обращается к директории, где уже нет файлов для запуска, так как мы их перенесли.
-
-Зайдем в конфигурационный файл:
-```
-sudo nano /etc/postgresql/14/main/postgresql.conf
-```
-Сменим data_directory c /var/lib/postgresql/14/main на /mnt/data/main:
-
-```
-data_directory = '/mnt/data/main'
-
-```
-Попробуем снова запуститься:
-
-```
-yc-user@otus-vm:~$ sudo systemctl restart postgresql@14-main
-yc-user@otus-vm:~$ pg_lsclusters
-Ver Cluster Port Status Owner    Data directory Log file
-14  main    5432 online postgres /mnt/data/main /var/log/postgresql/postgresql-14-main.log
-
-
-```
-Все успешно, проверим данные в таблице:
-
-
-```
-postgres=# select * from test;
-                c1                
-----------------------------------
- 7ae00286ca78c7c7e4a3a0d32b8b707a
- 08136bf3d0c02c1f5c255225367cdf56
- ab4e4043ae0553d85c48614a00a9b18f
- e325e2170c5ff3a98638ea2b8b503ba9
- da287f1bc39515decf96f3e9e8e03ccb
- d6e8b047cad1e23de561c5e2d8a9c305
- c862bb87a6acd25c20220832b8e048d3
- 0a486a56700360319ada606f94319600
- fbd39845343a0cd505b1f15d027eb065
- 07e8ab60af9c285980c712cabf492af3
-(10 rows)
-```
-
-Все получилось, данные перенеслись успешно.
-
+Данные прочитались, так как мы тронули только заголовки. С помошью прописанного параметра нам удалось прочитать таблицу. При этом мы берем во внимание, что данные без схождения контрольных сумм могут быть повреждены и некерректны.
 
