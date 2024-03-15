@@ -20,7 +20,7 @@ sudo nano /etc/postgresql/15/main/postgresql.conf
 Запустим pgbench с такими настройками на 10 минут:
 
 ```
-  yc-user@otus-vm:~$ pgbench -c 10  -T 60 -U postgres -h localhost -d testdb
+  yc-user@otus-vm:~$ pgbench -c 10  -T 600 -U postgres -h localhost -d testdb
 
 ```
 Результат:
