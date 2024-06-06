@@ -52,7 +52,7 @@ BEGIN
 
             INSERT INTO bookings.ticket_flights (ticket_no, flight_id, fare_conditions, amount)
             VALUES (ticket_no, flight_id, fare_conditions[j % array_length(fare_conditions, 1) + 1], round(random() * 500, 2));
-```
+
 
             INSERT INTO bookings.boarding_passes (ticket_no, flight_id, boarding_no, seat_no)
             VALUES (ticket_no, flight_id, j, 'A' || j);
@@ -60,3 +60,5 @@ BEGIN
     END LOOP;
 END;
 $$ LANGUAGE plpgsql; '''
+
+```
