@@ -1,6 +1,6 @@
 ```
--- Создание процедуры для заполнения данных
-DO $$
+CREATE OR REPLACE FUNCTION fill_bookings_data()
+RETURNS void AS $$
 DECLARE
     aircraft_codes text[] := array['A321', 'B737', 'C123'];
     airports text[] := array['JFK', 'LAX', 'SFO', 'ORD', 'ATL'];
@@ -53,12 +53,15 @@ BEGIN
             INSERT INTO bookings.ticket_flights (ticket_no, flight_id, fare_conditions, amount)
             VALUES (ticket_no, flight_id, fare_conditions[j % array_length(fare_conditions, 1) + 1], round(random() * 500, 2));
 
-
             INSERT INTO bookings.boarding_passes (ticket_no, flight_id, boarding_no, seat_no)
             VALUES (ticket_no, flight_id, j, 'A' || j);
         END LOOP;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql; '''
+$$ LANGUAGE plpgsql;
+
+-- Вызов функции
+SELECT fill_bookings_data();
+ '''
 
 ```
