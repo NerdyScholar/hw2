@@ -1,67 +1,112 @@
+
+
 ```
-CREATE OR REPLACE FUNCTION fill_bookings_data()
-RETURNS void AS $$
+transaction type: bookings_bench32.sql
+scaling factor: 1
+query mode: simple
+number of clients: 1
+number of threads: 1
+maximum number of tries: 1
+duration: 1800 s
+number of transactions actually processed: 4299
+number of failed transactions: 0 (0.000%)
+latency average = 418.783 ms
+initial connection time = 16.997 ms
+tps = 2.387870 (without initial connection time)
+statement latencies in milliseconds and failures:
+         0.016           0  \set book_ref random(100000, 999999)
+         0.011           0  \set ticket_no random(1000000000000, 9999999999999)
+         0.011           0  \set passenger_id random(1000, 9999)
+         0.012           0  \set boarding_no random(1, 200)
+         0.012           0  \set seat_no random(1000, 9999)
+         0.012           0  \set new_seat_no random(1000, 9999)
+         0.013           0  \set amount random(100, 10000) / 100.0
+         0.013           0  \set new_amount random(100, 10000) / 100.0
+         0.013           0  \set total_amount random(100, 10000) / 100.0
+         0.012           0  \set flight_id random(1, 200000)
+         0.185           0  BEGIN;
+         0.482           0  INSERT INTO bookings.bookings (book_ref, book_date, total_amount)
+         3.613           0  END;
+         0.138           0  BEGIN;
+         0.340           0  SELECT * FROM bookings.bookings WHERE book_ref = LPAD(:book_ref::text, 11, '0');
+         0.117           0  END;
+         0.122           0  BEGIN;
+         0.436           0  INSERT INTO bookings.tickets (ticket_no, book_ref, passenger_id, passenger_name)
+         3.485           0  END;
+         0.130           0  BEGIN;
+         0.291           0  SELECT * FROM bookings.tickets WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.120           0  END;
+         0.110           0  BEGIN;
+         2.730           0  INSERT INTO bookings.ticket_flights (ticket_no, flight_id, fare_conditions, amount)
+         3.435           0  END;
+         0.129           0  BEGIN;
+         0.289           0  SELECT * FROM bookings.ticket_flights WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.119           0  END;
+         0.104           0  BEGIN;
+         0.266           0  INSERT INTO bookings.boarding_passes (ticket_no, flight_id, boarding_no, seat_no)
+         3.320           0  END;
+         0.124           0  BEGIN;
+         0.271           0  SELECT * FROM bookings.boarding_passes WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.116           0  END;
+         0.103           0  BEGIN;
+         0.265           0  UPDATE bookings.boarding_passes SET seat_no = :new_seat_no::text WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_i
+         3.225           0  END;
+         0.124           0  BEGIN;
+         0.260           0  SELECT * FROM bookings.boarding_passes WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.117           0  END;
+         0.018           0  \set old_amount :amount
+         0.105           0  BEGIN;
+         0.303           0  UPDATE bookings.ticket_flights SET amount = :new_amount WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flig
+         3.222           0  END;
+         0.123           0  BEGIN;
+         0.265           0  SELECT * FROM bookings.ticket_flights WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.117           0  END;
+         0.105           0  BEGIN;
+         0.249           0  UPDATE bookings.tickets SET passenger_name = 'Jane Doe' WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         3.191           0  END;
+         0.123           0  BEGIN;
+         0.253           0  SELECT * FROM bookings.tickets WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.118           0  END;
+         0.104           0  BEGIN;
+         0.279           0  UPDATE bookings.bookings SET total_amount = total_amount + (:old_amount - :new_amount) WHERE book_ref = LPAD(:book_ref::text, 1
+         3.250           0  END;
+         0.123           0  BEGIN;
+         0.256           0  SELECT * FROM bookings.bookings WHERE book_ref = LPAD(:book_ref::text, 11, '0');
+         0.117           0  END;
+         0.105           0  BEGIN;
+         0.245           0  DELETE FROM bookings.boarding_passes WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         3.163           0  END;
+         0.122           0  BEGIN;
+         0.317           0  DELETE FROM bookings.ticket_flights WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         3.093           0  END;
+         0.124           0  BEGIN;
+         0.308           0  DELETE FROM bookings.tickets WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         3.096           0  END;
+         0.125           0  BEGIN;
+       366.795           0  DELETE FROM bookings.bookings WHERE book_ref = LPAD(:book_ref::text, 11, '0');
+         4.262           0  END;
+yc-user@otus-vm:~$ 
+
+work_mem не повлияло в лучшую сторону
+wal_writer тоже не повлиял на ситуацию
+
+CREATE INDEX idx_book_ref ON bookings.bookings (book_ref);
+CREATE INDEX idx_ticket_no ON bookings.tickets (ticket_no);
+```
+
+Для корректной работы функции пришлось создать поседовательность, тк без нее процедура пыталась создать дубликаты: 
+```
+-- Найдите максимальное числовое значение book_ref
+DO $$
 DECLARE
-    aircraft_codes text[] := array['A321', 'B737', 'C123'];
-    airports text[] := array['JFK', 'LAX', 'SFO', 'ORD', 'ATL'];
-    fare_conditions text[] := array['Economy', 'Comfort', 'Business'];
-    start_date timestamp := '2023-01-01 00:00:00';
-    end_date timestamp := '2024-01-01 00:00:00';
-    total_records int := 1000000; -- Укажите общее количество записей, чтобы заполнить около 30 ГБ данных
-    i int;
-    j int;
-    book_ref text;
-    ticket_no text;
-    flight_id int;
-    book_date timestamp;
-    scheduled_departure timestamp;
-    scheduled_arrival timestamp;
+    max_book_ref integer;
 BEGIN
-    -- Заполнение таблицы aircrafts_data
-    FOR i IN 1..array_length(aircraft_codes, 1) LOOP
-        INSERT INTO bookings.aircrafts_data (aircraft_code, model, range)
-        VALUES (aircraft_codes[i], jsonb_build_object('en', 'Model ' || aircraft_codes[i]), 5000 + i * 1000);
-    END LOOP;
-
-    -- Заполнение таблицы airports_data
-    FOR i IN 1..array_length(airports, 1) LOOP
-        INSERT INTO bookings.airports_data (airport_code, airport_name, city, coordinates, timezone)
-        VALUES (airports[i], jsonb_build_object('en', 'Airport ' || airports[i]), jsonb_build_object('en', 'City ' || airports[i]), point(40.0 + i, -74.0 + i), 'UTC');
-    END LOOP;
-
-    -- Заполнение таблицы bookings и связанной с ней tickets
-    FOR i IN 1..total_records LOOP
-        book_ref := lpad(i::text, 6, '0');
-        book_date := start_date + random() * (end_date - start_date);
-
-        INSERT INTO bookings.bookings (book_ref, book_date, total_amount)
-        VALUES (book_ref, book_date, round(random() * 1000, 2));
-
-        ticket_no := lpad((i * 10)::text, 13, '0');
-
-        INSERT INTO bookings.tickets (ticket_no, book_ref, passenger_id, passenger_name, contact_data)
-        VALUES (ticket_no, book_ref, 'ID' || i, 'Passenger ' || i, jsonb_build_object('phone', '1234567890'));
-
-        FOR j IN 1..5 LOOP
-            flight_id := nextval('bookings.flights_flight_id_seq');
-            scheduled_departure := start_date + random() * (end_date - start_date);
-            scheduled_arrival := scheduled_departure + interval '1 hour' * (1 + random() * 5);
-
-            INSERT INTO bookings.flights (flight_id, flight_no, scheduled_departure, scheduled_arrival, departure_airport, arrival_airport, status, aircraft_code)
-            VALUES (flight_id, lpad(flight_id::text, 6, '0'), scheduled_departure, scheduled_arrival, airports[j % array_length(airports, 1) + 1], airports[(j + 1) % array_length(airports, 1) + 1], 'Scheduled', aircraft_codes[j % array_length(aircraft_codes, 1) + 1]);
-
-            INSERT INTO bookings.ticket_flights (ticket_no, flight_id, fare_conditions, amount)
-            VALUES (ticket_no, flight_id, fare_conditions[j % array_length(fare_conditions, 1) + 1], round(random() * 500, 2));
-
-            INSERT INTO bookings.boarding_passes (ticket_no, flight_id, boarding_no, seat_no)
-            VALUES (ticket_no, flight_id, j, 'A' || j);
-        END LOOP;
-    END LOOP;
+    SELECT COALESCE(MAX(CAST(book_ref AS integer)), 0) + 1 INTO max_book_ref FROM bookings.bookings WHERE book_ref ~ '^\d+$';
+    
+    -- Пересоздайте последовательность
+    EXECUTE 'DROP SEQUENCE IF EXISTS bookings.book_ref_seq';
+    EXECUTE format('CREATE SEQUENCE bookings.book_ref_seq START WITH %s INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1', max_book_ref);
 END;
-$$ LANGUAGE plpgsql;
-
--- Вызов функции
-SELECT fill_bookings_data();
- '''
+$$;
 
 ```
