@@ -1425,6 +1425,7 @@ CREATE TABLE bookings.tickets_p (
     CONSTRAINT tickets_p_pkey PRIMARY KEY (ticket_no, book_ref),
     CONSTRAINT tickets_p_book_ref_fkey FOREIGN KEY (book_ref) REFERENCES bookings.bookings(book_ref)
 ) PARTITION BY RANGE (ticket_no);
+
 ```
 
 ```
@@ -1442,7 +1443,334 @@ CREATE TABLE bookings.tickets_p4 PARTITION OF bookings.tickets_p
     FOR VALUES FROM ('03750000000000') TO ('05000000000000');
    CREATE TABLE bookings.tickets_p5 PARTITION OF bookings.tickets_p
     DEFAULT;
-        ```
+
+ ```
+
+ ```
+-- Создание индексов на партициях
+CREATE INDEX idx_tickets_p1_book_ref ON bookings.tickets_p1 (book_ref);
+CREATE INDEX idx_tickets_p2_book_ref ON bookings.tickets_p2 (book_ref);
+CREATE INDEX idx_tickets_p3_book_ref ON bookings.tickets_p3 (book_ref);
+CREATE INDEX idx_tickets_p4_book_ref ON bookings.tickets_p4 (book_ref);
+CREATE INDEX idx_tickets_p5_book_ref ON bookings.tickets_p5 (book_ref);
+CREATE INDEX idx_tickets_p_book_ref ON bookings.tickets_p (book_ref);
+
+ ```
+ 
+ ```
+ -- Перенос данных из старой таблицы в новую секционированную таблицу
+INSERT INTO bookings.tickets_p (ticket_no, book_ref, passenger_id, passenger_name, contact_data)
+SELECT ticket_no, book_ref, passenger_id, passenger_name, contact_data
+FROM bookings.tickets;
+
+ ```
+ ```
+-- Создание главной таблицы ticket_flights_p
+CREATE TABLE bookings.ticket_flights_p (
+    ticket_no varchar(14) NOT NULL,
+    flight_id int4 NOT NULL,
+    fare_conditions varchar(10) NOT NULL,
+    amount numeric(10, 2) NOT NULL,
+    CONSTRAINT ticket_flights_p_pkey PRIMARY KEY (ticket_no, flight_id),
+    CONSTRAINT ticket_flights_p_flight_id_fkey FOREIGN KEY (flight_id) REFERENCES bookings.flights(flight_id),
+    CONSTRAINT ticket_flights_p_ticket_no_fkey FOREIGN KEY (ticket_no) REFERENCES bookings.tickets_p(ticket_no)
+) PARTITION BY RANGE (flight_id);
+
+
+ ```
+ ```
+-- Создание партиций по диапазону значений flight_id
+CREATE TABLE bookings.ticket_flights_p1 PARTITION OF bookings.ticket_flights_p
+    FOR VALUES FROM (1) TO (83334);
+
+CREATE TABLE bookings.ticket_flights_p2 PARTITION OF bookings.ticket_flights_p
+    FOR VALUES FROM (83334) TO (166667);
+
+CREATE TABLE bookings.ticket_flights_p3 PARTITION OF bookings.ticket_flights_p
+    FOR VALUES FROM (166667) TO (250000);
+
+-- Партиция по умолчанию для всех других значений flight_id
+CREATE TABLE bookings.ticket_flights_p4 PARTITION OF bookings.ticket_flights_p
+    DEFAULT;
+
+ ```
+```
+-- Создание индексов для главной таблицы
+CREATE INDEX idx_ticket_flights_p_ticket_no ON bookings.ticket_flights_p (ticket_no);
+CREATE INDEX idx_ticket_flights_p_flight_id ON bookings.ticket_flights_p (flight_id);
+
+-- Создание индексов для партиций
+CREATE INDEX idx_ticket_flights_p1_ticket_no ON bookings.ticket_flights_p1 (ticket_no);
+CREATE INDEX idx_ticket_flights_p1_flight_id ON bookings.ticket_flights_p1 (flight_id);
+
+CREATE INDEX idx_ticket_flights_p2_ticket_no ON bookings.ticket_flights_p2 (ticket_no);
+CREATE INDEX idx_ticket_flights_p2_flight_id ON bookings.ticket_flights_p2 (flight_id);
+
+CREATE INDEX idx_ticket_flights_p3_ticket_no ON bookings.ticket_flights_p3 (ticket_no);
+CREATE INDEX idx_ticket_flights_p3_flight_id ON bookings.ticket_flights_p3 (flight_id);
+
+CREATE INDEX idx_ticket_flights_p4_ticket_no ON bookings.ticket_flights_p4 (ticket_no);
+CREATE INDEX idx_ticket_flights_p4_flight_id ON bookings.ticket_flights_p4 (flight_id);
+
+
+```
+```
+-- Перенос данных из старой таблицы в новую секционированную таблицу
+INSERT INTO bookings.ticket_flights_p (ticket_no, flight_id, fare_conditions, amount)
+SELECT ticket_no, flight_id, fare_conditions, amount
+FROM bookings.ticket_flights;
+
+
+```
+```
+-- Создание главной таблицы boarding_passes
+CREATE TABLE bookings.boarding_passes_p (
+    ticket_no varchar(14) NOT NULL,
+    flight_id int4 NOT NULL,
+    boarding_no int4 NOT NULL,
+    seat_no varchar(4) NOT NULL,
+    CONSTRAINT boarding_passes_p_pkey PRIMARY KEY (ticket_no, flight_id),
+    CONSTRAINT boarding_passes_ticket_no_fkey FOREIGN KEY (ticket_no, flight_id) REFERENCES bookings.ticket_flights(ticket_no, flight_id)
+) PARTITION BY RANGE (flight_id);
+
+
+```
+
+```
+-- Создание партиций по диапазону значений flight_id
+CREATE TABLE bookings.boarding_passes_p1 PARTITION OF bookings.boarding_passes_p
+    FOR VALUES FROM (1) TO (83334);
+
+CREATE TABLE bookings.boarding_passes_p2 PARTITION OF bookings.boarding_passes_p
+    FOR VALUES FROM (83334) TO (166667);
+
+CREATE TABLE bookings.boarding_passes_p3 PARTITION OF bookings.boarding_passes_p
+    FOR VALUES FROM (166667) TO (250000);
+
+-- Партиция по умолчанию для всех других значений flight_id
+CREATE TABLE bookings.boarding_passes_p4 PARTITION OF bookings.boarding_passes_p
+    DEFAULT;
+
+
+```
+
+```
+-- Создание индексов для главной таблицы
+CREATE INDEX idx_boarding_passes_p_ticket_no ON bookings.boarding_passes_p (ticket_no);
+CREATE INDEX idx_boarding_passes_p_flight_id ON bookings.boarding_passes_p USING btree (flight_id);
+
+-- Создание индексов для партиций
+CREATE INDEX idx_boarding_passes_p1_ticket_no ON bookings.boarding_passes_p1 (ticket_no);
+CREATE INDEX idx_boarding_passes_p1_flight_id ON bookings.boarding_passes_p1 USING btree (flight_id);
+
+CREATE INDEX idx_boarding_passes_p2_ticket_no ON bookings.boarding_passes_p2 (ticket_no);
+CREATE INDEX idx_boarding_passes_p2_flight_id ON bookings.boarding_passes_p2 USING btree (flight_id);
+
+CREATE INDEX idx_boarding_passes_p3_ticket_no ON bookings.boarding_passes_p3 (ticket_no);
+CREATE INDEX idx_boarding_passes_p3_flight_id ON bookings.boarding_passes_p3 USING btree (flight_id);
+
+CREATE INDEX idx_boarding_passes_p4_ticket_no ON bookings.boarding_passes_p4 (ticket_no);
+CREATE INDEX idx_boarding_passes_p4_flight_id ON bookings.boarding_passes_p4 USING btree (flight_id);
+
+
+```
+```
+-- Перенос данных из старой таблицы в новую секционированную таблицу
+INSERT INTO bookings.boarding_passes_p (ticket_no, flight_id, boarding_no, seat_no)
+SELECT ticket_no, flight_id, boarding_no, seat_no
+FROM bookings.boarding_passes;
+
+
+```
+
+Результат тестирования показал, что секционирования не улучшило производительность, спустя несколько тестов подтвердилась гипотеза, что оно только ее ухудшило, вот пример результата:
+
+```
+-- секционирование таблиц
+transaction type: bookings_bench34.sql
+scaling factor: 1
+query mode: simple
+number of clients: 10
+number of threads: 1
+maximum number of tries: 1
+duration: 900 s
+number of transactions actually processed: 162332
+number of failed transactions: 0 (0.000%)
+latency average = 55.435 ms
+initial connection time = 162.261 ms
+tps = 180.391067 (without initial connection time)
+statement latencies in milliseconds and failures:
+         0.017           0  \set book_ref random(100000, 999999)
+         0.015           0  \set ticket_no random(1000000000000, 9999999999999)
+         0.015           0  \set passenger_id random(1000, 9999)
+         0.014           0  \set boarding_no random(1, 200)
+         0.015           0  \set seat_no random(1000, 9999)
+         0.014           0  \set new_seat_no random(1000, 9999)
+         0.015           0  \set amount random(100, 10000) / 100.0
+         0.015           0  \set new_amount random(100, 10000) / 100.0
+         0.015           0  \set total_amount random(100, 10000) / 100.0
+         0.014           0  \set flight_id random(1, 200000)
+         0.734           0  BEGIN;
+         0.849           0  INSERT INTO bookings.bookings (book_ref, book_date, total_amount)
+         0.727           0  END;
+         0.585           0  BEGIN;
+         0.813           0  SELECT * FROM bookings.bookings WHERE book_ref = LPAD(:book_ref::text, 11, '0');
+         0.653           0  END;
+         0.564           0  BEGIN;
+         0.986           0  INSERT INTO bookings.tickets_p (ticket_no, book_ref, passenger_id, passenger_name)
+         0.777           0  END;
+         0.590           0  BEGIN;
+         0.922           0  SELECT * FROM bookings.tickets_p WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.694           0  END;
+         0.576           0  BEGIN;
+         1.467           0  INSERT INTO bookings.ticket_flights_p (ticket_no, flight_id, fare_conditions, amount)
+         0.910           0  END;
+         0.660           0  BEGIN;
+         1.043           0  SELECT * FROM bookings.ticket_flights_p WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.749           0  END;
+         0.610           0  BEGIN;
+         1.463           0  INSERT INTO bookings.boarding_passes_p (ticket_no, flight_id, boarding_no, seat_no)
+         0.924           0  END;
+         0.671           0  BEGIN;
+         1.046           0  SELECT * FROM bookings.boarding_passes_p WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.757           0  END;
+         0.615           0  BEGIN;
+         1.058           0  UPDATE bookings.boarding_passes_p SET seat_no = :new_seat_no::text WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight
+         0.824           0  END;
+         0.615           0  BEGIN;
+         0.983           0  SELECT * FROM bookings.boarding_passes_p WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.725           0  END;
+         0.021           0  \set old_amount :amount
+         0.596           0  BEGIN;
+         1.046           0  UPDATE bookings.ticket_flights_p SET amount = :new_amount WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :fl
+         0.812           0  END;
+         0.606           0  BEGIN;
+         0.972           0  SELECT * FROM bookings.ticket_flights_p WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.721           0  END;
+         0.591           0  BEGIN;
+         1.017           0  UPDATE bookings.tickets_p SET passenger_name = 'Jane Doe' WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.797           0  END;
+         0.597           0  BEGIN;
+         0.916           0  SELECT * FROM bookings.tickets_p WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.694           0  END;
+         0.578           0  BEGIN;
+         0.893           0  UPDATE bookings.bookings SET total_amount = total_amount + (:old_amount - :new_amount) WHERE book_ref = LPAD(:book_ref::text, 1
+         0.740           0  END;
+         0.575           0  BEGIN;
+         0.802           0  SELECT * FROM bookings.bookings WHERE book_ref = LPAD(:book_ref::text, 11, '0');
+         0.644           0  END;
+         0.556           0  BEGIN;
+         0.931           0  DELETE FROM bookings.boarding_passes_p WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.755           0  END;
+         0.576           0  BEGIN;
+         1.392           0  DELETE FROM bookings.ticket_flights_p WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.915           0  END;
+         0.653           0  BEGIN;
+         1.306           0  DELETE FROM bookings.tickets_p WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.910           0  END;
+         0.657           0  BEGIN;
+         1.584           0  DELETE FROM bookings.bookings WHERE book_ref = LPAD(:book_ref::text, 11, '0');
+         0.965           0  END;
+
+
+
+
+```
+```
+-- без секционирования
+transaction type: bookings_bench32.sql
+scaling factor: 1
+query mode: simple
+number of clients: 10
+number of threads: 1
+maximum number of tries: 1
+duration: 900 s
+number of transactions actually processed: 172241
+number of failed transactions: 0 (0.000%)
+latency average = 52.246 ms
+initial connection time = 159.061 ms
+tps = 191.402294 (without initial connection time)
+statement latencies in milliseconds and failures:
+         0.016           0  \set book_ref random(100000, 999999)
+         0.014           0  \set ticket_no random(1000000000000, 9999999999999)
+         0.014           0  \set passenger_id random(1000, 9999)
+         0.014           0  \set boarding_no random(1, 200)
+         0.014           0  \set seat_no random(1000, 9999)
+         0.014           0  \set new_seat_no random(1000, 9999)
+         0.014           0  \set amount random(100, 10000) / 100.0
+         0.014           0  \set new_amount random(100, 10000) / 100.0
+         0.014           0  \set total_amount random(100, 10000) / 100.0
+         0.014           0  \set flight_id random(1, 200000)
+         0.619           0  BEGIN;
+         0.731           0  INSERT INTO bookings.bookings (book_ref, book_date, total_amount)
+         0.613           0  END;
+         0.503           0  BEGIN;
+         0.721           0  SELECT * FROM bookings.bookings WHERE book_ref = LPAD(:book_ref::text, 11, '0');
+         0.561           0  END;
+         0.493           0  BEGIN;
+         1.068           0  INSERT INTO bookings.tickets (ticket_no, book_ref, passenger_id, passenger_name)
+         0.668           0  END;
+         0.514           0  BEGIN;
+         0.744           0  SELECT * FROM bookings.tickets WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.568           0  END;
+         0.495           0  BEGIN;
+         2.184           0  INSERT INTO bookings.ticket_flights (ticket_no, flight_id, fare_conditions, amount)
+         0.727           0  END;
+         0.543           0  BEGIN;
+         0.832           0  SELECT * FROM bookings.ticket_flights WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.604           0  END;
+         0.513           0  BEGIN;
+         1.803           0  INSERT INTO bookings.boarding_passes (ticket_no, flight_id, boarding_no, seat_no)
+         0.692           0  END;
+         0.529           0  BEGIN;
+         0.820           0  SELECT * FROM bookings.boarding_passes WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.596           0  END;
+         0.511           0  BEGIN;
+         0.848           0  UPDATE bookings.boarding_passes SET seat_no = :new_seat_no::text WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_i
+         0.660           0  END;
+         0.512           0  BEGIN;
+         0.791           0  SELECT * FROM bookings.boarding_passes WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.584           0  END;
+         0.021           0  \set old_amount :amount
+         0.505           0  BEGIN;
+         0.917           0  UPDATE bookings.ticket_flights SET amount = :new_amount WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flig
+         0.679           0  END;
+         0.518           0  BEGIN;
+         0.797           0  SELECT * FROM bookings.ticket_flights WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.589           0  END;
+         0.506           0  BEGIN;
+         0.774           0  UPDATE bookings.tickets SET passenger_name = 'Jane Doe' WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.635           0  END;
+         0.503           0  BEGIN;
+         0.732           0  SELECT * FROM bookings.tickets WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.564           0  END;
+         0.492           0  BEGIN;
+         0.795           0  UPDATE bookings.bookings SET total_amount = total_amount + (:old_amount - :new_amount) WHERE book_ref = LPAD(:book_ref::text, 1
+         0.636           0  END;
+         0.501           0  BEGIN;
+         0.722           0  SELECT * FROM bookings.bookings WHERE book_ref = LPAD(:book_ref::text, 11, '0');
+         0.560           0  END;
+         0.489           0  BEGIN;
+         0.770           0  DELETE FROM bookings.boarding_passes WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.627           0  END;
+         0.496           0  BEGIN;
+         0.951           0  DELETE FROM bookings.ticket_flights WHERE ticket_no = LPAD(:ticket_no::text, 14, '0') AND flight_id = :flight_id;
+         0.688           0  END;
+         0.523           0  BEGIN;
+         0.893           0  DELETE FROM bookings.tickets WHERE ticket_no = LPAD(:ticket_no::text, 14, '0');
+         0.678           0  END;
+         0.517           0  BEGIN;
+         1.235           0  DELETE FROM bookings.bookings WHERE book_ref = LPAD(:book_ref::text, 11, '0');
+         0.762           0  END;
+
+
+```
+
+14.  Идея для продолжения проекта: дополнить все 4 таблицы, участвующие в удалении строк, столбцами created_at, updated_at, deleted_at с типом данных timestamp и вместо DELETE  использовать UPDATE столбца deleted_at, который по умолчанию NULL. Также написать функцию, которая либо по запросу с бэеканда либо периолически чистила бы строки != NULL  в столбце deleted_at.
+
+Полный список тестов (за исключением неудачных) будет прикреплен в этот же репозиторий (results_bench.txt).
+
+
    
         
 
